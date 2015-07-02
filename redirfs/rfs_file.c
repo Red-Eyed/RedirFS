@@ -28,226 +28,226 @@
 static rfs_kmem_cache_t *rfs_file_cache = NULL;
 
 struct file_operations rfs_file_ops = {
-	.open = rfs_open
+    .open = rfs_open
 };
 
 static struct rfs_file *rfs_file_alloc(struct file *file)
 {
-	struct rfs_file *rfile;
+    struct rfs_file *rfile;
 
-	rfile = kmem_cache_zalloc(rfs_file_cache, GFP_KERNEL);
-	if (!rfile)
-		return ERR_PTR(-ENOMEM);
+    rfile = kmem_cache_zalloc(rfs_file_cache, GFP_KERNEL);
+    if (!rfile)
+        return ERR_PTR(-ENOMEM);
 
-	INIT_LIST_HEAD(&rfile->rdentry_list);
-	INIT_LIST_HEAD(&rfile->data);
-	rfile->file = file;
-	spin_lock_init(&rfile->lock);
-	atomic_set(&rfile->count, 1);
-	rfile->op_old = fops_get(file->f_op);
+    INIT_LIST_HEAD(&rfile->rdentry_list);
+    INIT_LIST_HEAD(&rfile->data);
+    rfile->file = file;
+    spin_lock_init(&rfile->lock);
+    atomic_set(&rfile->count, 1);
+    rfile->op_old = fops_get(file->f_op);
 
-	if (rfile->op_old)
-		memcpy(&rfile->op_new, rfile->op_old,
-				sizeof(struct file_operations));
+    if (rfile->op_old)
+        memcpy(&rfile->op_new, rfile->op_old,
+                sizeof(struct file_operations));
 
-	rfile->op_new.open = rfs_open;
+    rfile->op_new.open = rfs_open;
 
-	return rfile;
+    return rfile;
 }
 
 struct rfs_file *rfs_file_get(struct rfs_file *rfile)
 {
-	if (!rfile || IS_ERR(rfile))
-		return NULL;
+    if (!rfile || IS_ERR(rfile))
+        return NULL;
 
-	BUG_ON(!atomic_read(&rfile->count));
-	atomic_inc(&rfile->count);
+    BUG_ON(!atomic_read(&rfile->count));
+    atomic_inc(&rfile->count);
 
-	return rfile;
+    return rfile;
 }
 
 void rfs_file_put(struct rfs_file *rfile)
 {
-	if (!rfile || IS_ERR(rfile))
-		return;
+    if (!rfile || IS_ERR(rfile))
+        return;
 
-	BUG_ON(!atomic_read(&rfile->count));
-	if (!atomic_dec_and_test(&rfile->count))
-		return;
+    BUG_ON(!atomic_read(&rfile->count));
+    if (!atomic_dec_and_test(&rfile->count))
+        return;
 
-	rfs_dentry_put(rfile->rdentry);
-	fops_put(rfile->op_old);
+    rfs_dentry_put(rfile->rdentry);
+    fops_put(rfile->op_old);
 
-	rfs_data_remove(&rfile->data);
-	kmem_cache_free(rfs_file_cache, rfile);
+    rfs_data_remove(&rfile->data);
+    kmem_cache_free(rfs_file_cache, rfile);
 }
 
 static struct rfs_file *rfs_file_add(struct file *file)
 {
-	struct rfs_file *rfile;
+    struct rfs_file *rfile;
 
-	rfile = rfs_file_alloc(file);
-	if (IS_ERR(rfile))
-		return rfile;
+    rfile = rfs_file_alloc(file);
+    if (IS_ERR(rfile))
+        return rfile;
 
 #if (LINUX_VERSION_CODE < KERNEL_VERSION(3,19,0))
-	rfile->rdentry = rfs_dentry_find(file->f_dentry);
+    rfile->rdentry = rfs_dentry_find(file->f_dentry);
 #else
-	rfile->rdentry = rfs_dentry_find(file->f_path.dentry);
+    rfile->rdentry = rfs_dentry_find(file->f_path.dentry);
 #endif
 
-	rfs_dentry_add_rfile(rfile->rdentry, rfile);
-	fops_put(file->f_op);
-	file->f_op = &rfile->op_new;
-	rfs_file_get(rfile);
-	spin_lock(&rfile->rdentry->lock);
-	rfs_file_set_ops(rfile);
-	spin_unlock(&rfile->rdentry->lock);
+    rfs_dentry_add_rfile(rfile->rdentry, rfile);
+    fops_put(file->f_op);
+    file->f_op = &rfile->op_new;
+    rfs_file_get(rfile);
+    spin_lock(&rfile->rdentry->lock);
+    rfs_file_set_ops(rfile);
+    spin_unlock(&rfile->rdentry->lock);
 
-	return rfile;
+    return rfile;
 }
 
 static void rfs_file_del(struct rfs_file *rfile)
 {
-	rfs_dentry_rem_rfile(rfile);
-	rfile->file->f_op = fops_get(rfile->op_old);
-	rfs_file_put(rfile);
+    rfs_dentry_rem_rfile(rfile);
+    rfile->file->f_op = fops_get(rfile->op_old);
+    rfs_file_put(rfile);
 }
 
 int rfs_file_cache_create(void)
 {
-	rfs_file_cache = rfs_kmem_cache_create("rfs_file_cache",
-			sizeof(struct rfs_file));
+    rfs_file_cache = rfs_kmem_cache_create("rfs_file_cache",
+            sizeof(struct rfs_file));
 
-	if (!rfs_file_cache)
-		return -ENOMEM;
+    if (!rfs_file_cache)
+        return -ENOMEM;
 
-	return 0;
+    return 0;
 }
 
 void rfs_file_cache_destory(void)
 {
-	kmem_cache_destroy(rfs_file_cache);
+    kmem_cache_destroy(rfs_file_cache);
 }
 
 int rfs_open(struct inode *inode, struct file *file)
 {
-	struct rfs_file *rfile;
-	struct rfs_dentry *rdentry;
-	struct rfs_inode *rinode;
-	struct rfs_info *rinfo;
-	struct rfs_context rcont;
-	struct redirfs_args rargs;
+    struct rfs_file *rfile;
+    struct rfs_dentry *rdentry;
+    struct rfs_inode *rinode;
+    struct rfs_info *rinfo;
+    struct rfs_context rcont;
+    struct redirfs_args rargs;
 
-	rinode = rfs_inode_find(inode);
-	fops_put(file->f_op);
-	file->f_op = fops_get(rinode->fop_old);
+    rinode = rfs_inode_find(inode);
+    fops_put(file->f_op);
+    file->f_op = fops_get(rinode->fop_old);
 
 #if (LINUX_VERSION_CODE < KERNEL_VERSION(3,19,0))
-	rdentry = rfs_dentry_find(file->f_dentry);
+    rdentry = rfs_dentry_find(file->f_dentry);
 #else
-	rdentry = rfs_dentry_find(file->f_path.dentry);
+    rdentry = rfs_dentry_find(file->f_path.dentry);
 #endif
 
-	if (!rdentry) {
-		rfs_inode_put(rinode);
-		if (file->f_op && file->f_op->open)
-			return file->f_op->open(inode, file);
+    if (!rdentry) {
+        rfs_inode_put(rinode);
+        if (file->f_op && file->f_op->open)
+            return file->f_op->open(inode, file);
 
-		return 0;
-	}
+        return 0;
+    }
 
-	rinfo = rfs_dentry_get_rinfo(rdentry);
+    rinfo = rfs_dentry_get_rinfo(rdentry);
 
-	rfs_dentry_put(rdentry);
-	rfs_context_init(&rcont, 0);
+    rfs_dentry_put(rdentry);
+    rfs_context_init(&rcont, 0);
 
-	if (S_ISREG(inode->i_mode))
-		rargs.type.id = REDIRFS_REG_FOP_OPEN;
-	else if (S_ISDIR(inode->i_mode))
-		rargs.type.id = REDIRFS_DIR_FOP_OPEN;
-	else if (S_ISLNK(inode->i_mode))
-		rargs.type.id = REDIRFS_LNK_FOP_OPEN;
-	else if (S_ISCHR(inode->i_mode))
-		rargs.type.id = REDIRFS_CHR_FOP_OPEN;
-	else if (S_ISBLK(inode->i_mode))
-		rargs.type.id = REDIRFS_BLK_FOP_OPEN;
-	else if (S_ISFIFO(inode->i_mode))
-		rargs.type.id = REDIRFS_FIFO_FOP_OPEN;
+    if (S_ISREG(inode->i_mode))
+        rargs.type.id = REDIRFS_REG_FOP_OPEN;
+    else if (S_ISDIR(inode->i_mode))
+        rargs.type.id = REDIRFS_DIR_FOP_OPEN;
+    else if (S_ISLNK(inode->i_mode))
+        rargs.type.id = REDIRFS_LNK_FOP_OPEN;
+    else if (S_ISCHR(inode->i_mode))
+        rargs.type.id = REDIRFS_CHR_FOP_OPEN;
+    else if (S_ISBLK(inode->i_mode))
+        rargs.type.id = REDIRFS_BLK_FOP_OPEN;
+    else if (S_ISFIFO(inode->i_mode))
+        rargs.type.id = REDIRFS_FIFO_FOP_OPEN;
 
-	rargs.args.f_open.inode = inode;
-	rargs.args.f_open.file = file;
+    rargs.args.f_open.inode = inode;
+    rargs.args.f_open.file = file;
 
-	if (!rfs_precall_flts(rinfo, &rcont, &rargs)) {
-		if (rinode->fop_old && rinode->fop_old->open)
-			rargs.rv.rv_int = rinode->fop_old->open(
-					rargs.args.f_open.inode,
-					rargs.args.f_open.file);
-		else
-			rargs.rv.rv_int = 0;
-	} else
-		rargs.rv.rv_int = -EACCES;
+    if (!rfs_precall_flts(rinfo->rchain, &rcont, &rargs)) {
+        if (rinode->fop_old && rinode->fop_old->open)
+            rargs.rv.rv_int = rinode->fop_old->open(
+                    rargs.args.f_open.inode,
+                    rargs.args.f_open.file);
+        else
+            rargs.rv.rv_int = 0;
+    } else
+        rargs.rv.rv_int = -EACCES;
 
-	if (!rargs.rv.rv_int) {
-		rfile = rfs_file_add(file);
-		if (IS_ERR(rfile))
-			BUG();
-		rfs_file_put(rfile);
-	}
+    if (!rargs.rv.rv_int) {
+        rfile = rfs_file_add(file);
+        if (IS_ERR(rfile))
+            BUG();
+        rfs_file_put(rfile);
+    }
 
-	rfs_postcall_flts(rinfo, &rcont, &rargs);
-	rfs_context_deinit(&rcont);
+    rfs_postcall_flts(rinfo->rchain, &rcont, &rargs);
+    rfs_context_deinit(&rcont);
 
-	rfs_inode_put(rinode);
-	rfs_info_put(rinfo);
-	return rargs.rv.rv_int;
+    rfs_inode_put(rinode);
+    rfs_info_put(rinfo);
+    return rargs.rv.rv_int;
 }
 
 static int rfs_release(struct inode *inode, struct file *file)
 {
-	struct rfs_file *rfile;
-	struct rfs_info *rinfo;
-	struct rfs_context rcont;
-	struct redirfs_args rargs;
+    struct rfs_file *rfile;
+    struct rfs_info *rinfo;
+    struct rfs_context rcont;
+    struct redirfs_args rargs;
 
-	rfile = rfs_file_find(file);
-	rinfo = rfs_dentry_get_rinfo(rfile->rdentry);
+    rfile = rfs_file_find(file);
+    rinfo = rfs_dentry_get_rinfo(rfile->rdentry);
 
-	rfs_context_init(&rcont, 0);
+    rfs_context_init(&rcont, 0);
 
-	if (S_ISREG(inode->i_mode))
-		rargs.type.id = REDIRFS_REG_FOP_RELEASE;
-	else if (S_ISDIR(inode->i_mode))
-		rargs.type.id = REDIRFS_DIR_FOP_RELEASE;
-	else if (S_ISLNK(inode->i_mode))
-		rargs.type.id = REDIRFS_LNK_FOP_RELEASE;
-	else if (S_ISCHR(inode->i_mode))
-		rargs.type.id = REDIRFS_CHR_FOP_RELEASE;
-	else if (S_ISBLK(inode->i_mode))
-		rargs.type.id = REDIRFS_BLK_FOP_RELEASE;
-	else if (S_ISFIFO(inode->i_mode))
-		rargs.type.id = REDIRFS_FIFO_FOP_RELEASE;
+    if (S_ISREG(inode->i_mode))
+        rargs.type.id = REDIRFS_REG_FOP_RELEASE;
+    else if (S_ISDIR(inode->i_mode))
+        rargs.type.id = REDIRFS_DIR_FOP_RELEASE;
+    else if (S_ISLNK(inode->i_mode))
+        rargs.type.id = REDIRFS_LNK_FOP_RELEASE;
+    else if (S_ISCHR(inode->i_mode))
+        rargs.type.id = REDIRFS_CHR_FOP_RELEASE;
+    else if (S_ISBLK(inode->i_mode))
+        rargs.type.id = REDIRFS_BLK_FOP_RELEASE;
+    else if (S_ISFIFO(inode->i_mode))
+        rargs.type.id = REDIRFS_FIFO_FOP_RELEASE;
 
-	rargs.args.f_release.inode = inode;
-	rargs.args.f_release.file = file;
+    rargs.args.f_release.inode = inode;
+    rargs.args.f_release.file = file;
 
-	if (!rfs_precall_flts(rinfo, &rcont, &rargs)) {
-		if (rfile->op_old && rfile->op_old->release)
-			rargs.rv.rv_int = rfile->op_old->release(
-					rargs.args.f_release.inode,
-					rargs.args.f_release.file);
-		else
-			rargs.rv.rv_int = 0;
-	} else
-		rargs.rv.rv_int = 0;
+    if (!rfs_precall_flts(rinfo->rchain, &rcont, &rargs)) {
+        if (rfile->op_old && rfile->op_old->release)
+            rargs.rv.rv_int = rfile->op_old->release(
+                    rargs.args.f_release.inode,
+                    rargs.args.f_release.file);
+        else
+            rargs.rv.rv_int = 0;
+    } else
+        rargs.rv.rv_int = 0;
 
-	rfs_postcall_flts(rinfo, &rcont, &rargs);
-	rfs_context_deinit(&rcont);
+    rfs_postcall_flts(rinfo->rchain, &rcont, &rargs);
+    rfs_context_deinit(&rcont);
 
-	rfs_file_del(rfile);
-	rfs_file_put(rfile);
-	rfs_info_put(rinfo);
-	return rargs.rv.rv_int;
+    rfs_file_del(rfile);
+    rfs_file_put(rfile);
+    rfs_info_put(rinfo);
+    return rargs.rv.rv_int;
 }
 
 #if (LINUX_VERSION_CODE < KERNEL_VERSION(3,11,0))
@@ -256,99 +256,99 @@ static int rfs_readdir(struct file *file, void *dirent, filldir_t filldir)
 static int rfs_iterate(struct file *file, struct dir_context *dir_context)
 #endif
 {
-	LIST_HEAD(sibs);
-	struct rfs_dcache_entry *sib;
-	struct rfs_file *rfile;
-	struct rfs_info *rinfo;
-	struct rfs_context rcont;
-	struct rfs_dentry *rdentry;
-	struct redirfs_args rargs;
+    LIST_HEAD(sibs);
+    struct rfs_dcache_entry *sib;
+    struct rfs_file *rfile;
+    struct rfs_info *rinfo;
+    struct rfs_context rcont;
+    struct rfs_dentry *rdentry;
+    struct redirfs_args rargs;
 
-	rfile = rfs_file_find(file);
-	rinfo = rfs_dentry_get_rinfo(rfile->rdentry);
+    rfile = rfs_file_find(file);
+    rinfo = rfs_dentry_get_rinfo(rfile->rdentry);
 
-	rfs_context_init(&rcont, 0);
+    rfs_context_init(&rcont, 0);
 
 #if (LINUX_VERSION_CODE < KERNEL_VERSION(3,11,0))
-	if (S_ISDIR(file->f_dentry->d_inode->i_mode))
-		rargs.type.id = REDIRFS_DIR_FOP_READDIR;
-	rargs.args.f_readdir.file = file;
-	rargs.args.f_readdir.dirent = dirent;
-	rargs.args.f_readdir.filldir = filldir;
+    if (S_ISDIR(file->f_dentry->d_inode->i_mode))
+        rargs.type.id = REDIRFS_DIR_FOP_READDIR;
+    rargs.args.f_readdir.file = file;
+    rargs.args.f_readdir.dirent = dirent;
+    rargs.args.f_readdir.filldir = filldir;
 #elif (LINUX_VERSION_CODE < KERNEL_VERSION(3,19,0))
-	if (S_ISDIR(file->f_dentry->d_inode->i_mode))
-		rargs.type.id = REDIRFS_DIR_FOP_ITERATE;
-	rargs.args.f_iterate.file = file;
-	rargs.args.f_iterate.dir_context = dir_context;
+    if (S_ISDIR(file->f_dentry->d_inode->i_mode))
+        rargs.type.id = REDIRFS_DIR_FOP_ITERATE;
+    rargs.args.f_iterate.file = file;
+    rargs.args.f_iterate.dir_context = dir_context;
 #else
-	if (S_ISDIR(file->f_path.dentry->d_inode->i_mode))
-		rargs.type.id = REDIRFS_DIR_FOP_ITERATE;
-	rargs.args.f_iterate.file = file;
-	rargs.args.f_iterate.dir_context = dir_context;
+    if (S_ISDIR(file->f_path.dentry->d_inode->i_mode))
+        rargs.type.id = REDIRFS_DIR_FOP_ITERATE;
+    rargs.args.f_iterate.file = file;
+    rargs.args.f_iterate.dir_context = dir_context;
 #endif
 
-	if (!rfs_precall_flts(rinfo, &rcont, &rargs)) {
+    if (!rfs_precall_flts(rinfo->rchain, &rcont, &rargs)) {
 #if (LINUX_VERSION_CODE < KERNEL_VERSION(3,11,0))
-		if (rfile->op_old && rfile->op_old->readdir) 
-			rargs.rv.rv_int = rfile->op_old->readdir(
-					rargs.args.f_readdir.file,
-					rargs.args.f_readdir.dirent,
-					rargs.args.f_readdir.filldir);
+        if (rfile->op_old && rfile->op_old->readdir) 
+            rargs.rv.rv_int = rfile->op_old->readdir(
+                    rargs.args.f_readdir.file,
+                    rargs.args.f_readdir.dirent,
+                    rargs.args.f_readdir.filldir);
 #else
-		if (rfile->op_old && rfile->op_old->iterate) 
-			rargs.rv.rv_int = rfile->op_old->iterate(
-					rargs.args.f_iterate.file,
-					rargs.args.f_iterate.dir_context);
+        if (rfile->op_old && rfile->op_old->iterate) 
+            rargs.rv.rv_int = rfile->op_old->iterate(
+                    rargs.args.f_iterate.file,
+                    rargs.args.f_iterate.dir_context);
 #endif
-		else
-			rargs.rv.rv_int = -ENOTDIR;
-	} else
-		rargs.rv.rv_int = -ENOTDIR;
+        else
+            rargs.rv.rv_int = -ENOTDIR;
+    } else
+        rargs.rv.rv_int = -ENOTDIR;
 
-	rfs_postcall_flts(rinfo, &rcont, &rargs);
-	rfs_context_deinit(&rcont);
+    rfs_postcall_flts(rinfo->rchain, &rcont, &rargs);
+    rfs_context_deinit(&rcont);
 
-	if (rargs.rv.rv_int)
-		goto exit;
+    if (rargs.rv.rv_int)
+        goto exit;
 
 #if (LINUX_VERSION_CODE < KERNEL_VERSION(3,19,0))
-	if (rfs_dcache_get_subs(file->f_dentry, &sibs)) {
-		BUG();
-		goto exit;
-	}
+    if (rfs_dcache_get_subs(file->f_dentry, &sibs)) {
+        BUG();
+        goto exit;
+    }
 #else
-	if (rfs_dcache_get_subs(file->f_path.dentry, &sibs)) {
-		BUG();
-		goto exit;
-	}
+    if (rfs_dcache_get_subs(file->f_path.dentry, &sibs)) {
+        BUG();
+        goto exit;
+    }
 #endif
 
-	list_for_each_entry(sib, &sibs, list) {
-		rdentry = rfs_dentry_find(sib->dentry);
-		if (rdentry) {
-			rfs_dentry_put(rdentry);
-			continue;
-		}
+    list_for_each_entry(sib, &sibs, list) {
+        rdentry = rfs_dentry_find(sib->dentry);
+        if (rdentry) {
+            rfs_dentry_put(rdentry);
+            continue;
+        }
 
-		if (!rinfo->rops) {
-			if (!sib->dentry->d_inode)
-				continue;
+        if (!rinfo->rops) {
+            if (!sib->dentry->d_inode)
+                continue;
 
-			if (!S_ISDIR(sib->dentry->d_inode->i_mode))
-				continue;
-		}
+            if (!S_ISDIR(sib->dentry->d_inode->i_mode))
+                continue;
+        }
 
-		if (rfs_dcache_rdentry_add(sib->dentry, rinfo)) {
-			BUG();
-			goto exit;
-		}
-	}
+        if (rfs_dcache_rdentry_add(sib->dentry, rinfo)) {
+            BUG();
+            goto exit;
+        }
+    }
 
 exit:
-	rfs_dcache_entry_free_list(&sibs);
-	rfs_file_put(rfile);
-	rfs_info_put(rinfo);
-	return rargs.rv.rv_int;
+    rfs_dcache_entry_free_list(&sibs);
+    rfs_file_put(rfile);
+    rfs_info_put(rinfo);
+    return rargs.rv.rv_int;
 }
 
 static void rfs_file_set_ops_reg(struct rfs_file *rfile)
@@ -358,9 +358,9 @@ static void rfs_file_set_ops_reg(struct rfs_file *rfile)
 static void rfs_file_set_ops_dir(struct rfs_file *rfile)
 {
 #if (LINUX_VERSION_CODE < KERNEL_VERSION(3,11,0))
-	rfile->op_new.readdir = rfs_readdir;
+    rfile->op_new.readdir = rfs_readdir;
 #else
-	rfile->op_new.iterate = rfs_iterate;
+    rfile->op_new.iterate = rfs_iterate;
 #endif
 }
 
@@ -382,31 +382,31 @@ static void rfs_file_set_ops_fifo(struct rfs_file *rfile)
 
 void rfs_file_set_ops(struct rfs_file *rfile)
 {
-	umode_t mode;
+    umode_t mode;
 
-	if (!rfile->rdentry->rinode)
-		return;
+    if (!rfile->rdentry->rinode)
+        return;
 
-	mode = rfile->rdentry->rinode->inode->i_mode;
+    mode = rfile->rdentry->rinode->inode->i_mode;
 
-	if (S_ISREG(mode))
-		rfs_file_set_ops_reg(rfile);
+    if (S_ISREG(mode))
+        rfs_file_set_ops_reg(rfile);
 
-	else if (S_ISDIR(mode))
-		rfs_file_set_ops_dir(rfile);
+    else if (S_ISDIR(mode))
+        rfs_file_set_ops_dir(rfile);
 
-	else if (S_ISLNK(mode))
-		rfs_file_set_ops_lnk(rfile);
+    else if (S_ISLNK(mode))
+        rfs_file_set_ops_lnk(rfile);
 
-	else if (S_ISCHR(mode))
-		rfs_file_set_ops_chr(rfile);
+    else if (S_ISCHR(mode))
+        rfs_file_set_ops_chr(rfile);
 
-	else if (S_ISBLK(mode))
-		rfs_file_set_ops_blk(rfile);
+    else if (S_ISBLK(mode))
+        rfs_file_set_ops_blk(rfile);
 
-	else if (S_ISFIFO(mode))
-		rfs_file_set_ops_fifo(rfile);
+    else if (S_ISFIFO(mode))
+        rfs_file_set_ops_fifo(rfile);
 
-	rfile->op_new.release = rfs_release;
+    rfile->op_new.release = rfs_release;
 }
 

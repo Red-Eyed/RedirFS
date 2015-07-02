@@ -27,45 +27,45 @@
 
 struct rfs_ops *rfs_ops_alloc(void)
 {
-	struct rfs_ops *rops;
-	char *arr;
+    struct rfs_ops *rops;
+    char *arr;
 
-	rops = kzalloc(sizeof(struct rfs_ops), GFP_KERNEL);
-	if (!rops)
-		return ERR_PTR(-ENOMEM);
+    rops = kzalloc(sizeof(struct rfs_ops), GFP_KERNEL);
+    if (!rops)
+        return ERR_PTR(-ENOMEM);
 
-	arr = kzalloc(sizeof(char) * REDIRFS_OP_END, GFP_KERNEL);
-	if (!arr) {
-		kfree(rops);
-		return ERR_PTR(-ENOMEM);
-	}
+    arr = kzalloc(sizeof(char) * REDIRFS_OP_END, GFP_KERNEL);
+    if (!arr) {
+        kfree(rops);
+        return ERR_PTR(-ENOMEM);
+    }
 
-	rops->arr = arr;
-	atomic_set(&rops->count, 1);
+    rops->arr = arr;
+    atomic_set(&rops->count, 1);
 
-	return rops;
+    return rops;
 }
 
 struct rfs_ops *rfs_ops_get(struct rfs_ops *rops)
 {
-	if (!rops || IS_ERR(rops))
-		return NULL;
+    if (!rops || IS_ERR(rops))
+        return NULL;
 
-	BUG_ON(!atomic_read(&rops->count));
-	atomic_inc(&rops->count);
-	return rops;
+    BUG_ON(!atomic_read(&rops->count));
+    atomic_inc(&rops->count);
+    return rops;
 }
 
 void rfs_ops_put(struct rfs_ops *rops)
 {
-	if (!rops || IS_ERR(rops))
-		return;
+    if (!rops || IS_ERR(rops))
+        return;
 
-	BUG_ON(!atomic_read(&rops->count));
-	if (!atomic_dec_and_test(&rops->count))
-		return;
+    BUG_ON(!atomic_read(&rops->count));
+    if (!atomic_dec_and_test(&rops->count))
+        return;
 
-	kfree(rops->arr);
-	kfree(rops);
+    kfree(rops->arr);
+    kfree(rops);
 }
 
